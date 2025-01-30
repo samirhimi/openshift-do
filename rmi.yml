@@ -1,0 +1,30 @@
+---
+- name: Remove multiple images
+  hosts: localhost
+  vars:
+    image_file: "registry_access.txt"  
+    registry_url: "registry.ocp4.example.com:8443"
+    image_to_pull:
+#      - "quay.io/redhattraining/builds-for-managers"
+
+  tasks:
+    
+    - name: Read the list of container images
+      ansible.builtin.slurp:
+        path: "{{ image_file }}"
+      register: image_list
+      tags: list
+
+    - name: Decode the file content
+      ansible.builtin.set_fact:
+        image_to_pull: "{{ image_list.content | b64decode | split('\n') }}"
+      tags: decode
+
+
+    - name: Remove an image
+      containers.podman.podman_image:
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ image_to_pull }}"
+      when: item | trim != ""
+      tags: rmi

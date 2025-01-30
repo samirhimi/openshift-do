@@ -1,0 +1,56 @@
+---
+- name: Pull multiple images from quay.io and push to private registry
+  hosts: localhost
+  vars:
+    image_file: "registry_access.txt"  
+    registry_url: "registry.ocp4.example.com:8443"
+    image_to_pull:
+#      - "quay.io/redhattraining/builds-for-managers"
+#     - "quay.io/redhattraining/do280-beeper-api:1.0"
+
+  tasks:
+    
+    - name: Read the list of container images
+      ansible.builtin.slurp:
+        path: "{{ image_file }}"
+      register: image_list
+      tags: list
+
+    - name: Decode the file content
+      ansible.builtin.set_fact:
+        image_to_pull: "{{ image_list.content | b64decode | split('\n') }}"
+      tags: decode
+
+    - name: Log in to the private Docker registry
+      command: podman login -u "admin" -p "admin" "{{ registry_url }}"
+      register: login_output
+      ignore_errors: yes
+      changed_when: "'Login Succeeded' in login_output.stdout"
+      tags: login
+
+    - name: Pull the image from a public registry
+      containers.podman.podman_image:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ image_to_pull }}"
+      when: item | trim != ""    
+      tags: pull
+
+    - name: Tag images for the private registry
+      ansible.builtin.command:
+        cmd: "podman tag {{ item }} {{ registry_url }}/{{ item.split('/', 1)[1] }}"
+      loop: "{{ image_to_pull }}"
+      when: item | trim != ""
+      tags: tag
+
+    - name: Push images to the private registry
+      containers.podman.podman_image:
+        name: "{{ registry_url }}/{{ item.split('/', 1)[1] }}"
+        push: true
+        state: present
+        tls_verify: false
+      loop: "{{ image_to_pull }}"
+      when: item | trim != ""
+      tags: push
+      ignore_errors: true
+
